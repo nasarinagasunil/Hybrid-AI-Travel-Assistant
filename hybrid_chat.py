@@ -1,37 +1,33 @@
-# hybrid_chat.py
+# hybrid_chat.py (MODIFIED FOR GOOGLE AI)
 import json
 from typing import List
-from openai import OpenAI
-from pinecone import Pinecone, ServerlessSpec
+import google.generativeai as genai
+from pinecone import Pinecone
 from neo4j import GraphDatabase
 import config
 
 # -----------------------------
 # Config
 # -----------------------------
-EMBED_MODEL = "text-embedding-3-small"
-CHAT_MODEL = "gpt-4o-mini"
+EMBED_MODEL = "models/text-embedding-004"
+CHAT_MODEL = "gemini-2.5-pro" # Using Google's Gemini Flash model
 TOP_K = 5
 
-INDEX_NAME = config.PINECONE_INDEX_NAME
+INDEX_NAME = config.PINECONE_INDEX_NAME # Should be 'vietnam-travel-google'
 
 # -----------------------------
 # Initialize clients
 # -----------------------------
-client = OpenAI(api_key=config.OPENAI_API_KEY)
+# Configure Google client
+genai.configure(api_key=config.GOOGLE_API_KEY)
+
+# Configure Pinecone client (modern v3+ syntax)
 pc = Pinecone(api_key=config.PINECONE_API_KEY)
 
-# Connect to Pinecone index
-if INDEX_NAME not in pc.list_indexes().names():
-    print(f"Creating managed index: {INDEX_NAME}")
-    pc.create_index(
-        name=INDEX_NAME,
-        dimension=config.PINECONE_VECTOR_DIM,
-        metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region="us-east1-gcp")
-    )
-
-index = pc.Index(INDEX_NAME)
+# Connect to Pinecone index using the host
+# You MUST replace this with the correct host from your Pinecone dashboard
+INDEX_HOST = "vietnam-travel-google-5308776.svc.aped-4627-b74a.pinecone.io"
+index = pc.Index(host=INDEX_HOST)
 
 # Connect to Neo4j
 driver = GraphDatabase.driver(
@@ -42,9 +38,9 @@ driver = GraphDatabase.driver(
 # Helper functions
 # -----------------------------
 def embed_text(text: str) -> List[float]:
-    """Get embedding for a text string."""
-    resp = client.embeddings.create(model=EMBED_MODEL, input=[text])
-    return resp.data[0].embedding
+    """Get embedding for a text string using Google AI."""
+    response = genai.embed_content(model=EMBED_MODEL, content=text)
+    return response['embedding']
 
 def pinecone_query(query_text: str, top_k=TOP_K):
     """Query Pinecone index using embedding."""
@@ -55,11 +51,11 @@ def pinecone_query(query_text: str, top_k=TOP_K):
         include_metadata=True,
         include_values=False
     )
-    print("DEBUG: Pinecone top 5 results:")
+    print(f"DEBUG: Pinecone top {top_k} results:")
     print(len(res["matches"]))
     return res["matches"]
 
-def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
+def fetch_graph_context(node_ids: List[str]):
     """Fetch neighboring nodes from Neo4j."""
     facts = []
     with driver.session() as session:
@@ -86,7 +82,7 @@ def fetch_graph_context(node_ids: List[str], neighborhood_depth=1):
 
 def build_prompt(user_query, pinecone_matches, graph_facts):
     """Build a chat prompt combining vector DB matches and graph facts."""
-    system = (
+    system_instruction = (
         "You are a helpful travel assistant. Use the provided semantic search results "
         "and graph facts to answer the user's query briefly and concisely. "
         "Cite node ids when referencing specific places or attractions."
@@ -106,34 +102,30 @@ def build_prompt(user_query, pinecone_matches, graph_facts):
         for f in graph_facts
     ]
 
-    prompt = [
-        {"role": "system", "content": system},
-        {"role": "user", "content":
+    # Gemini uses a different prompt structure (no 'system' role)
+    full_prompt = (
+         f"{system_instruction}\n\n"
          f"User query: {user_query}\n\n"
          "Top semantic matches (from vector DB):\n" + "\n".join(vec_context[:10]) + "\n\n"
          "Graph facts (neighboring relations):\n" + "\n".join(graph_context[:20]) + "\n\n"
-         "Based on the above, answer the user's question. If helpful, suggest 2–3 concrete itinerary steps or tips and mention node ids for references."}
-    ]
-    return prompt
-
-def call_chat(prompt_messages):
-    """Call OpenAI ChatCompletion."""
-    resp = client.chat.completions.create(
-        model=CHAT_MODEL,
-        messages=prompt_messages,
-        max_tokens=600,
-        temperature=0.2
+         "Based on the above, answer the user's question. If helpful, suggest 2–3 concrete itinerary steps or tips and mention node ids for references."
     )
-    return resp.choices[0].message.content
+    return full_prompt
+
+def call_chat(prompt):
+    """Call Google's Gemini model."""
+    model = genai.GenerativeModel(CHAT_MODEL)
+    response = model.generate_content(prompt)
+    return response.text
 
 # -----------------------------
 # Interactive chat
 # -----------------------------
 def interactive_chat():
-    print("Hybrid travel assistant. Type 'exit' to quit.")
+    print("Hybrid travel assistant (Google AI Edition). Type 'exit' to quit.")
     while True:
         query = input("\nEnter your travel question: ").strip()
-        if not query or query.lower() in ("exit","quit"):
+        if not query or query.lower() in ("exit", "quit"):
             break
 
         matches = pinecone_query(query, top_k=TOP_K)
