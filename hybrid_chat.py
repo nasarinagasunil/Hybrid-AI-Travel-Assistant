@@ -1,4 +1,4 @@
-# hybrid_chat.py (MODIFIED FOR GOOGLE AI)
+# hybrid_chat.py (MODIFIED FOR GOOGLE AI + TASK 3 IMPROVEMENTS)
 import json
 from typing import List
 import google.generativeai as genai
@@ -10,10 +10,10 @@ import config
 # Config
 # -----------------------------
 EMBED_MODEL = "models/text-embedding-004"
-CHAT_MODEL = "gemini-2.5-pro" # Using Google's Gemini Flash model
+CHAT_MODEL = "gemini-2.5-pro"  # Using Google's powerful reasoning model
 TOP_K = 5
 
-INDEX_NAME = config.PINECONE_INDEX_NAME # Should be 'vietnam-travel-google'
+INDEX_NAME = config.PINECONE_INDEX_NAME  # Should be 'vietnam-travel-google'
 
 # -----------------------------
 # Initialize clients
@@ -25,7 +25,6 @@ genai.configure(api_key=config.GOOGLE_API_KEY)
 pc = Pinecone(api_key=config.PINECONE_API_KEY)
 
 # Connect to Pinecone index using the host
-# You MUST replace this with the correct host from your Pinecone dashboard
 INDEX_HOST = "vietnam-travel-google-5308776.svc.aped-4627-b74a.pinecone.io"
 index = pc.Index(host=INDEX_HOST)
 
@@ -33,6 +32,11 @@ index = pc.Index(host=INDEX_HOST)
 driver = GraphDatabase.driver(
     config.NEO4J_URI, auth=(config.NEO4J_USER, config.NEO4J_PASSWORD)
 )
+
+# --- TASK 3 IMPROVEMENT: EMBEDDING CACHING ---
+# Simple in-memory cache to store embeddings for repeated queries
+embedding_cache = {}
+# ---------------------------------------------
 
 # -----------------------------
 # Helper functions
@@ -43,8 +47,17 @@ def embed_text(text: str) -> List[float]:
     return response['embedding']
 
 def pinecone_query(query_text: str, top_k=TOP_K):
-    """Query Pinecone index using embedding."""
-    vec = embed_text(query_text)
+    """Query Pinecone index using embedding, with caching."""
+    # --- TASK 3 IMPROVEMENT: EMBEDDING CACHING ---
+    if query_text in embedding_cache:
+        print("DEBUG: Using cached embedding.")
+        vec = embedding_cache[query_text]
+    else:
+        print("DEBUG: Generating new embedding.")
+        vec = embed_text(query_text)
+        embedding_cache[query_text] = vec
+    # ---------------------------------------------
+
     res = index.query(
         vector=vec,
         top_k=top_k,
@@ -83,9 +96,8 @@ def fetch_graph_context(node_ids: List[str]):
 def build_prompt(user_query, pinecone_matches, graph_facts):
     """Build a chat prompt combining vector DB matches and graph facts."""
     system_instruction = (
-        "You are a helpful travel assistant. Use the provided semantic search results "
-        "and graph facts to answer the user's query briefly and concisely. "
-        "Cite node ids when referencing specific places or attractions."
+        "You are an expert travel assistant. Your goal is to create a helpful, "
+        "data-driven travel itinerary based on the user's query and the context provided."
     )
 
     vec_context = []
@@ -98,18 +110,25 @@ def build_prompt(user_query, pinecone_matches, graph_facts):
         vec_context.append(snippet)
 
     graph_context = [
-        f"- ({f['source']}) -[{f['rel']}]-> ({f['target_id']}) {f['target_name']}: {f['target_desc']}"
+        f"- ({f['source']}) -[{f['rel']}]-> ({f['target_id']}) {f['target_name']}"
         for f in graph_facts
     ]
 
-    # Gemini uses a different prompt structure (no 'system' role)
-    full_prompt = (
-         f"{system_instruction}\n\n"
-         f"User query: {user_query}\n\n"
-         "Top semantic matches (from vector DB):\n" + "\n".join(vec_context[:10]) + "\n\n"
-         "Graph facts (neighboring relations):\n" + "\n".join(graph_context[:20]) + "\n\n"
-         "Based on the above, answer the user's question. If helpful, suggest 2–3 concrete itinerary steps or tips and mention node ids for references."
+    # --- TASK 3 IMPROVEMENT: CHAIN-OF-THOUGHT PROMPT ---
+    final_instruction = (
+        "Based on the provided data, perform the following steps:\n"
+        "1.  **Reasoning**: First, in a paragraph, explain your reasoning. Analyze the user's query and the retrieved context (both semantic and graph facts) to decide on the best travel plan. Mention which cities or themes are most relevant and why.\n"
+        "2.  **Itinerary**: Second, generate a concise, day-by-day travel itinerary based on your reasoning. Format the output clearly using markdown. Cite specific node ids (e.g., `attraction_123`) for attractions or activities where appropriate."
     )
+
+    full_prompt = (
+        f"{system_instruction}\n\n"
+        f"User query: {user_query}\n\n"
+        "## Context from Vector Database\n" + "\n".join(vec_context) + "\n\n"
+        "## Context from Knowledge Graph\n" + "\n".join(graph_context) + "\n\n"
+        f"## Instructions\n{final_instruction}"
+    )
+    # ---------------------------------------------
     return full_prompt
 
 def call_chat(prompt):
@@ -122,7 +141,7 @@ def call_chat(prompt):
 # Interactive chat
 # -----------------------------
 def interactive_chat():
-    print("Hybrid travel assistant (Google AI Edition). Type 'exit' to quit.")
+    print("Hybrid travel assistant (Google AI Edition - Improved!). Type 'exit' to quit.")
     while True:
         query = input("\nEnter your travel question: ").strip()
         if not query or query.lower() in ("exit", "quit"):
