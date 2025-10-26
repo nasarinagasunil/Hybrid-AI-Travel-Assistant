@@ -111,18 +111,29 @@ def summarize_pinecone_results(matches: List[dict]) -> str:
     return f"The most relevant results are related to '{top_theme}' experiences, primarily in {top_city}."
 # ---------------------------------
 
+# In hybrid_chat.py, replace the old build_prompt function with this one:
+
 def build_prompt(user_query, pinecone_matches, graph_facts, summary):
-    """Build a chat prompt with all context and improvements."""
+    """Build a chat prompt with all context and improved instructions."""
     system_instruction = "You are an expert travel assistant. Your goal is to create a helpful, data-driven travel itinerary based on the user's query and the context provided."
 
     vec_context = [f"- id: {m['id']}, name: {m['metadata'].get('name', '')}" for m in pinecone_matches]
     graph_context = [f"- ({f['source']}) -[{f['rel']}]-> ({f['target_id']}) {f['target_name']}" for f in graph_facts]
 
+    # --- START OF PROMPT FIX ---
+    # New instructions are more flexible and guide the model based on user intent.
     final_instruction = (
-        "Based on the data, perform these steps:\n"
-        "1. **Reasoning**: Explain your plan based on the user's query and the context summary.\n"
-        "2. **Itinerary**: Generate a day-by-day itinerary. Cite node ids (e.g., `attraction_123`)."
+        "Based on the provided data, your task is to answer the user's query.\n\n"
+        "INSTRUCTIONS:\n"
+        "1. **Analyze the Query**: First, understand what the user is asking for. Are they requesting a full itinerary, a specific recommendation, or general information?\n"
+        "2. **Formulate the Answer**: Use the context to directly answer their question. \n"
+        "   - If they ask for an **itinerary**, provide a clear, day-by-day plan.\n"
+        "   - If they ask a **'where' or 'what' question**, provide a direct recommendation (e.g., 'The best place for X is Y') and explain why.\n"
+        "   - If they ask for **information**, summarize the relevant details in a helpful paragraph.\n"
+        "3. **Explain Your Reasoning**: Briefly explain *why* you are making your recommendation, referencing the context summary or specific data points.\n"
+        "4. **Cite Sources**: When you mention a specific place, cite its `id` in parentheses, like `(attraction_123)`."
     )
+    # --- END OF PROMPT FIX ---
 
     full_prompt = (
         f"{system_instruction}\n\n"
