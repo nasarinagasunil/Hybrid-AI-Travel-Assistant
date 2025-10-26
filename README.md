@@ -5,8 +5,6 @@
 
 This project is an advanced, retrieval-augmented generation (RAG) system designed to function as an intelligent travel assistant. It answers natural language queries by combining the power of **semantic vector search** with the contextual richness of a **knowledge graph**. The final, enriched context is then fed to a large language model to synthesize a coherent, data-driven response.
 
-The primary goal of this project was to debug, complete, and enhance a semi-functional chat system, demonstrating skills in Python, API integration, database management, and prompt engineering.
-
 ## Core Features
 
   * **Hybrid Retrieval**: Utilizes **Pinecone** for fast, semantic vector search to understand user intent and **Neo4j** to enrich the search results with explicit, factual relationships from a knowledge graph.
@@ -46,6 +44,7 @@ Travelling-AI-Hybrid-Chat/
 ├── pinecone_upload.py
 ├── visualize_graph.py
 ├── requirements.txt
+├── app.py
 └── README.md
 ```
 
@@ -129,14 +128,14 @@ Run the scripts from your activated virtual environment in the following order.
     python pinecone_upload.py
     ```
 
-3.  **Run the Interactive Chat Assistant**:
-    This starts the main application. You can now ask it travel-related questions.
+3.  **Launch the Streamlit Web Application**:
+    This command starts the web server and opens the AI Travel Assistant in your browser.
 
     ```bash
-    python hybrid_chat.py
+    streamlit run app.py
     ```
 
-    **Example Query**: `create a romantic 4 day itinerary for Vietnam`
+    You can now interact with the assistant through the web interface. Ask it questions like create a romantic 4 day itinerary for Vietnam or where can I go trekking?
 
 4.  **(Optional) Visualize the Graph**:
     This generates an `neo4j_viz.html` file that you can open in your browser to see the graph.
